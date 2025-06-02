@@ -1,42 +1,54 @@
+import { serialize } from 'cookie';
+
 export default async function handler(req, res) {
-  const code = req.query.code;
-  const stateEncoded = req.query.state;
+  const {
+    AIRTABLE_CLIENT_ID,
+    AIRTABLE_CLIENT_SECRET,
+    AIRTABLE_REDIRECT_URI,
+  } = process.env;
 
-  if (!code || !stateEncoded) {
-    return res.status(400).json({ error: "Missing code or state" });
+  const { code, state } = req.query;
+
+  if (!code) {
+    return res.status(400).json({ error: 'Missing code from Airtable' });
   }
 
-  let codeVerifier;
-  try {
-    const state = JSON.parse(Buffer.from(stateEncoded, "base64").toString("utf-8"));
-    codeVerifier = state.codeVerifier;
-  } catch {
-    return res.status(400).json({ error: "Invalid state encoding" });
+  const storedState = req.cookies['state'];
+  const storedVerifier = req.cookies['code_verifier'];
+
+  if (state !== storedState || !storedVerifier) {
+    return res.status(400).json({ error: 'Invalid state or missing verifier' });
   }
 
-  try {
-    const response = await fetch("https://airtable.com/oauth2/v1/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: process.env.AIRTABLE_CLIENT_ID,
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: process.env.REDIRECT_URI,
-        code_verifier: codeVerifier
-      })
-    });
+  const tokenRes = await fetch('https://airtable.com/oauth2/v1/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      client_id: AIRTABLE_CLIENT_ID,
+      client_secret: AIRTABLE_CLIENT_SECRET,
+      redirect_uri: AIRTABLE_REDIRECT_URI,
+      code_verifier: storedVerifier,
+    }),
+  });
 
-    const tokenData = await response.json();
+  const tokenData = await tokenRes.json();
 
-    if (!response.ok) {
-      return res.status(500).json({ error: "Failed to authenticate", tokenData });
-    }
-
-    const token = tokenData.access_token;
-    res.writeHead(302, { Location: `/api/oauth/success?token=${encodeURIComponent(token)}` });
-    res.end();
-  } catch (err) {
-    res.status(500).json({ error: "Callback error", details: err });
+  if (!tokenRes.ok) {
+    console.error('Token request failed:', tokenData);
+    return res.status(400).json({ error: 'Failed to authenticate', tokenData });
   }
+
+  // Store token securely (for this demo we'll use a cookie)
+  res.setHeader('Set-Cookie', serialize('access_token', tokenData.access_token, {
+    path: '/',
+    httpOnly: true,
+    sameSite: 'lax',
+    maxAge: 60 * 60 * 24, // 1 day
+  }));
+
+  return res.redirect('/success');
 }
