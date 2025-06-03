@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: Inter, sans-serif; padding: 16px; width: 300px; background: #fff; color: #333; }
+    .dark { background: #222; color: #eee; }
+    select, button { width: 100%; padding: 8px; margin-top: 10px; font-size: 14px; }
+    h2 { margin-top: 0; }
+  </style>
+</head>
+<body>
+  <h2>🚀 Figmax Airtable</h2>
+
+  <label>Bases</label>
+  <select id="baseSelect"><option>Loading...</option></select>
+
+  <label>Tables</label>
+  <select id="tableSelect"><option>Select base first</option></select>
+
+  <button id="deployBtn" disabled>Deploy</button>
+  <button id="toggleTheme">Toggle Dark Mode</button>
+
+  <script>
+    const baseSel = document.getElementById("baseSelect");
+    const tableSel = document.getElementById("tableSelect");
+    const deployBtn = document.getElementById("deployBtn");
+
+    document.getElementById("toggleTheme").onclick = () => {
+      document.body.classList.toggle("dark");
+    };
+
+    async function fetchBases() {
+      try {
+        const res = await fetch("https://vercel-backend-mauve-eight.vercel.app/api/airtable/bases");
+        const bases = await res.json();
+        console.log("✅ Bases loaded:", bases);
+        baseSel.innerHTML = bases.map(b => `<option value="${b.id}">${b.name}</option>`).join("");
+        fetchTables(bases[0].id);
+      } catch (err) {
+        console.error("❌ Error loading bases:", err);
+        baseSel.innerHTML = "<option>Error loading bases</option>";
+      }
+    }
+
+    async function fetchTables(baseId) {
+      try {
+        const res = await fetch("https://vercel-backend-mauve-eight.vercel.app/api/airtable/tables?baseId=" + baseId);
+        const tables = await res.json();
+        console.log("✅ Tables loaded:", tables);
+        tableSel.innerHTML = tables.map(t => `<option value="${t.name}">${t.name}</option>`).join("");
+        if (tables.length > 0) {
+          deployBtn.disabled = false;
+        } else {
+          tableSel.innerHTML = "<option>No tables found</option>";
+          deployBtn.disabled = true;
+        }
+      } catch (err) {
+        console.error("❌ Error loading tables:", err);
+        tableSel.innerHTML = "<option>Error loading tables</option>";
+      }
+    }
+
+    baseSel.addEventListener("change", () => {
+      fetchTables(baseSel.value);
+    });
+
+    deployBtn.onclick = async () => {
+      const baseId = baseSel.value;
+      const table = tableSel.value;
+      const res = await fetch("https://vercel-backend-mauve-eight.vercel.app/api/airtable/records?baseId=" + baseId + "&table=" + encodeURIComponent(table));
+      const data = await res.json();
+      parent.postMessage({ pluginMessage: { type: "apply-data", records: data.records } }, "*");
+    };
+
+    fetchBases();
+  </script>
+</body>
+</html>
